@@ -1,0 +1,342 @@
+﻿'VERY IMPORTANT! VERY IMPORTANT! VERY IMPORTANT! VERY IMPORTANT!
+'VERY IMPORTANT! VERY IMPORTANT! VERY IMPORTANT! VERY IMPORTANT!
+'VERY IMPORTANT! VERY IMPORTANT! VERY IMPORTANT! VERY IMPORTANT!
+'VERY IMPORTANT! VERY IMPORTANT! VERY IMPORTANT! VERY IMPORTANT!
+'Enable if arrays are zero-based
+'#define PATHMAP_ARRAYBASE0
+
+'must be strictly smaller than 128
+#define PATH_MAP_WIDTH 12
+'must be strictly smaller than 128
+#define PATH_MAP_HEIGHT 12
+'must be odd and <= 253 
+#define MAX_PATH_STEPS 253
+'Set to teh minimum value between PATH_MAP_WIDTH, PATH_MAP_HEIGHT and MAX_PATH_STEPS
+#define MIN_PATH_PARAM 12
+
+'These are return values for the NextPathMovement function
+#define UNREACHABLE 0
+#define MOVE_UP 1
+#define MOVE_DOWN 2
+#define MOVE_LEFT 3
+#define MOVE_RIGHT 4
+
+
+
+
+'WARNING!! Path map is y/x not x/y and must have a solid border
+Dim pathMap(PATH_MAP_HEIGHT, PATH_MAP_WIDTH) as ubyte
+
+
+'********************************************
+'* HELPER FUNCTIONS                         *
+'********************************************
+
+'WARNING. All these helper functions assume a base1 array, if you use
+'base0 for arrays change code accordingly
+'You can remove all of these if your prorgram doesn't need them
+
+'Initializes an empty map with a solid border
+sub InitializePathMap()
+
+	Dim tmpX as uByte
+	Dim tmpY as uByte
+	
+	'Make a solid border on the map
+
+#ifdef PATHMAP_ARRAYBASE0
+	for tmpX = 0 to PATH_MAP_WIDTH - 1
+		pathMap(0, tmpX) = 0				
+		pathMap(PATH_MAP_HEIGHT - 1, tmpX) = 0
+	next tmpX
+
+	for tmpY = 0 to PATH_MAP_HEIGHT - 1
+		pathMap(tmpY, 0) = 0				
+		pathMap(tmpY, PATH_MAP_WIDTH - 1) = 0
+	next tmpY
+
+	'Fill all the empty cells with 255
+
+	for tmpX = 1 to PATH_MAP_WIDTH - 2
+		for tmpY = 1 to PATH_MAP_HEIGHT - 2
+			pathMap(tmpY, tmpX) = 255
+		next tmpY
+	next tmpX
+#else
+	for tmpX = 1 to PATH_MAP_WIDTH
+		pathMap(1, tmpX) = 0				
+		pathMap(PATH_MAP_HEIGHT, tmpX) = 0
+	next tmpX
+
+	for tmpY = 1 to PATH_MAP_HEIGHT
+		pathMap(tmpY, 1) = 0				
+		pathMap(tmpY, PATH_MAP_WIDTH) = 0
+	next tmpY
+
+	'Fill all the empty cells with 255
+
+	for tmpX = 2 to PATH_MAP_WIDTH - 1
+		for tmpY = 2 to PATH_MAP_HEIGHT - 1
+			pathMap(tmpY, tmpX) = 255
+		next tmpY
+	next tmpX
+#endif
+
+
+end sub
+
+'Finds the next movement to reach the target from the specified coordinates.
+'It assumes:
+'	-Test coordinate is on an empty cell
+'	-Test coordinate is inside the map
+'	-Map has been correctly initialized
+'	-PathFind has been executed
+function NextPathMovement(x as uByte, y as uByte) as uByte
+
+	Dim currentWeight as uByte = pathMap(y, x)
+
+	'If we are in an unreachable cell skip all the tests
+	if currentWeight = 255 then return UNREACHABLE
+
+    Dim tmpWeight as uByte
+    Dim nextDir as uByte = UNREACHABLE
+                    
+    'Left
+    tmpWeight = pathMap(y, x - 1)
+    if tmpWeight < currentWeight then
+    if tmpWeight <> 0 then
+            currentWeight = tmpWeight
+            nextDir = MOVE_LEFT
+    end if
+    end if
+
+    'Right
+    tmpWeight = pathMap(y, x + 1)
+    if tmpWeight < currentWeight then
+    if tmpWeight <> 0 then
+            currentWeight = tmpWeight
+            nextDir = MOVE_RIGHT
+    end if
+    end if
+
+    'Up
+    tmpWeight = pathMap(y - 1, x)
+    if tmpWeight < currentWeight then
+    if tmpWeight <> 0 then
+            currentWeight = tmpWeight
+            nextDir = MOVE_UP
+    end if
+    end if
+
+    'Down
+    tmpWeight = pathMap(y + 1, x)
+    if tmpWeight < currentWeight then
+    if tmpWeight <> 0 then
+            currentWeight = tmpWeight
+            nextDir = MOVE_DOWN
+    end if
+    end if
+
+	return nextDir
+
+end function
+
+'********************************************
+'* MAIN PATH FINDING                        *
+'********************************************
+'The main path finding function
+'Fills pathMap with the distances to the target
+'
+sub fastcall PathFind(x as ubyte, y as ubyte)
+
+asm
+
+PROC
+LOCAL pmap, worklist1, worklist2, save_sp
+LOCAL calc_distance, step_loop, skip_left, skip_right, skip_up, skip_down, swap_lists
+;++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+; Calculate distance to all reachable cells from the given start cell (or
+; up to 'max_step' steps removed from the start cell).
+; pathMap must be filled with the obstacles, an empty cell is represented by
+; 255, a blocked cell is represented by 0
+;++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+map_size	equ	PATH_MAP_WIDTH * PATH_MAP_HEIGHT
+pmap        equ _pathMap.__DATA__ ; path map. If you use another array name
+								  ; you must change this to reflect it
+
+		di
+
+		exx
+		pop hl
+		exx
+#ifndef PATHMAP_ARRAYBASE0
+		dec a					  ;REMOVE IF ARRAY BASED IN 0
+#endif
+		ld d, a
+		pop af
+#ifndef PATHMAP_ARRAYBASE0
+		dec a					  ;REMOVE IF ARRAY BASED IN 0
+#endif
+		ld e, a
+		exx
+		push hl
+		exx
+
+;NOTE ;NOTE ;NOTE ;NOTE
+;A lot more efficient if you change this code to
+;concrete instructions instead of a generic loop for
+;the multiplication
+
+calc_distance:
+
+;Multiplication loop
+
+		ld  hl, 0
+		ld	b,e		; b = y-coord
+		ld	e,d
+		ld	d,h		; de = x-coord
+
+		ld  a, b		
+		and a
+		jp z, no_mul
+
+		push de
+        ld de, PATH_MAP_WIDTH ;hl = map width
+
+mul_loop:
+		add hl, de
+		djnz mul_loop
+		pop de
+no_mul:
+
+		add	hl,de
+
+;end multiplication loop
+
+		ld	de,pmap
+		add	hl,de		; address of the start cell in pmap
+
+		ld	(save_sp),sp	; after this point we can't use 'normal'
+		ld	sp,worklist1+2	;   stack operations anymore
+		xor	a
+		ld	(worklist1+3),a	; mark end of list
+		ld	de,worklist2
+
+		ld	a,255-MAX_PATH_STEPS	; step-counter, starts at 2 instead of 1!!
+		ld	(hl),254-MAX_PATH_STEPS ; mark start cell
+
+		; At this point
+		;  A  = step-count = 2
+		;  HL = address of start cell
+		;  SP = address of next item in worklist1 (points to 0-byte
+		;       because the initial list only contains the start cell
+		;       and as an optimization we don't explicitly store that
+		;	cell in the list)
+		;  DE = worklist2 (newly reached cells will be stored here)
+		;  BC not in use
+
+step_loop	; at this point:
+		;  SP = address of next item in worklist
+		;  HL = address of current cell
+		dec	hl		; left neighbor cell
+		cp	(hl)		; (HL) <= A means:    (so not-carry)
+		jr	nc,skip_left	;  -> already marked or a wall
+		; new cell is reached, mark it and store it in the new worklist
+		ld	(hl),a		; mark cell with step-counter
+		ex	de,hl
+		ld	(hl),e
+		inc	hl
+		ld	(hl),d		; store cell in new worklist
+		inc	hl		; update to next free position in list
+		ex	de,hl
+skip_left
+		inc	hl
+		inc	hl		; right neighbor
+		cp	(hl)
+		jr	nc,skip_right
+		ld	(hl),a
+		ex	de,hl
+		ld	(hl),e
+		inc	hl
+		ld	(hl),d
+		inc	hl
+		ex	de,hl
+skip_right
+		ld	bc,-PATH_MAP_WIDTH-1
+		add	hl,bc		; up neighbor
+		cp	(hl)
+		jr	nc,skip_up
+		ld	(hl),a
+		ex	de,hl
+		ld	(hl),e
+		inc	hl
+		ld	(hl),d
+		inc	hl
+		ex	de,hl
+skip_up
+		ld	bc,PATH_MAP_WIDTH*2	; if (PATH_MAP_WIDTH < 128) -> B=0, see below
+		add	hl,bc		; down neighbor
+		cp	(hl)
+		jr	nc,skip_down
+		ld	(hl),a
+		ex	de,hl
+		ld	(hl),e
+		inc	hl
+		ld	(hl),d
+		inc	hl
+		ex	de,hl
+skip_down
+		pop	hl		; hl = next item from worklist
+		inc	h
+		dec	h		; upper-byte != 0
+		jr	nz,step_loop	;  -> end-of-list not yet reached
+
+		ex	de,hl
+		inc	hl
+		ld	(hl),b		; mark end of next worklist (B=0)
+
+		inc	a		; increase step count
+		ld	de,worklist2
+		ld	hl,worklist1
+		bit	0,a
+		jr	z,swap_lists	; Z/NZ depends on the initial step-count!
+		ex	de,hl		; swap lists (depends on odd/even step count)
+swap_lists	ld	sp,hl
+
+		; at this point:
+		;  SP = address of first item in the new worklist
+		;  DE = address of next worklist (this list does not need to cleared)
+		;  A  = step count
+		pop	hl
+		inc	h
+		dec	h		; h == 0?
+		jr	nz,step_loop
+
+		; We've just switched to a new worklist, and we're already
+		; at the end of that list (so list was empty). This means
+		; that all reachable cells have been marked.
+		ld	sp,(save_sp)	; restore stack pointer
+        ;ret 
+        jp end_path_proc
+
+;++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+;reserved memory space
+;++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+worklist1:	ds	2*4*MIN_PATH_PARAM
+worklist2:	ds	2*4*MIN_PATH_PARAM
+save_sp		ds	2
+
+;exit point
+
+end_path_proc:
+
+ei
+
+ENDP
+
+end asm
+
+end sub

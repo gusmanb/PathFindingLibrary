@@ -1,0 +1,96 @@
+﻿REM @options --asm --array-base 1 --string-base 1 --optimize 4 --org 25000 --heap-size 256 --explicit --strict -D HIDE_LOAD_MSG
+
+#include "PathFinding.zxbas"
+
+InitializePathMap() 'Init the map
+
+'Now we create some obstacles.
+
+Dim tmpX as uByte
+Dim tmpY as uByte
+
+'Set the walls
+
+for tmpX = 2 to 9
+	pathMap(3, tmpX) = 0
+next tmpX
+
+for tmpX = 3 to 11
+	pathMap(5, tmpX) = 0
+next tmpX
+
+for tmpX = 2 to 6
+	pathMap(7, tmpX) = 0
+next tmpX
+
+for tmpX = 8 to 11
+	pathMap(7, tmpX) = 0
+next tmpX
+
+pathMap(8, 5) = 0
+pathMap(9, 3) = 0
+
+for tmpX = 3 to 11
+	pathMap(10, tmpX) = 0
+next tmpX
+
+
+'Print the map
+for tmpX = 1 to 12
+	for tmpY = 1 to 12
+		if pathMap(tmpY, tmpX) = 0 then print at tmpY, tmpX; "#"
+	next tmpY
+next tmpX
+
+'print our target position
+tmpX = 10
+tmpY = 11
+
+print at tmpY,tmpX;"@"
+
+'Compute the movement map
+PathFind(tmpX, tmpY)
+
+'And now we can use the map to move to the target
+tmpX = 2
+tmpY = 2
+
+'Print our start position
+print at tmpY,tmpX;"O"
+
+while tmpX <> 10 or tmpY <> 11
+
+	Dim nextMovement as uByte = NextPathMovement(tmpX, tmpY)
+
+	if nextMovement = UNREACHABLE 'We can't find a path to the target :(
+
+		print at 0,0; "TARGET UNREACHABLE!!!!!!"
+		stop
+
+	end if
+
+	if nextMovement = MOVE_UP then
+		print at 0,0; "UP    "
+		tmpY = tmpY - 1
+	else if nextMovement = MOVE_DOWN then
+		print at 0,0; "DOWN  "
+		tmpY = tmpY + 1
+	else if nextMovement = MOVE_LEFT then
+		print at 0,0; "LEFT  "
+		tmpX = tmpX - 1
+	else if nextMovement = MOVE_RIGHT then
+		print at 0,0; "RIGHT "
+		tmpX = tmpX + 1
+	end if
+
+	print at tmpY, tmpX ; "O"
+	beep 0.01, 7
+	pause 30
+end while
+
+beep 0.01, 7
+beep 0.01, 10
+beep 0.01, 14
+beep 0.01, 24
+
+print at 0,0; "ON TARGET!"
